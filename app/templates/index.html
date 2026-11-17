@@ -13,7 +13,10 @@
   <body>
     <header class="topbar">
       <a class="brand" href="/" aria-label="TenderReady home"><span class="brand-mark">T</span><span>Tender<span class="brand-light">Ready</span></span></a>
-      <div class="topbar-note"><span class="status-dot"></span> Built for African businesses</div>
+      <div class="topbar-actions">
+        <div class="topbar-note"><span class="status-dot"></span> Built for African businesses</div>
+        {% if tester_mode %}<form action="/logout" method="post"><button class="logout-button" type="submit">Sign out</button></form>{% endif %}
+      </div>
     </header>
     <main>
       <section class="hero">
@@ -29,7 +32,7 @@
         <section class="panel profile-panel" aria-labelledby="profile-title">
           <div class="panel-heading">
             <div class="step-badge">01</div>
-            <div><h2 id="profile-title">Your business profile</h2><p>We use this to assess your fit. Your profile is saved in this local app.</p></div>
+            <div><h2 id="profile-title">Your business profile</h2><p>We use this to assess your fit. {% if tester_mode %}Your profile is private to this browser session.{% else %}Your profile is saved in this local app.{% endif %}</p></div>
           </div>
           <form id="profile-form" class="form-grid">
             <label class="field field-wide">Business name<input name="business_name" required minlength="2" maxlength="120" placeholder="e.g. Acacia Engineering Ltd" value="{{ profile.business_name if profile else '' }}"></label>
@@ -62,8 +65,18 @@
               <input id="tender-file" type="file" accept=".pdf,.docx,.xlsx,.xls,.pptx,.txt,.csv,.html,.htm,.png,.jpg,.jpeg,.tif,.tiff,.bmp,.webp" multiple required>
             </label>
             <div id="upload-error" class="error-message" role="alert" hidden></div>
+            <div id="analysis-progress" class="analysis-progress" hidden>
+              <div class="progress-header">
+                <span id="progress-label">Analysing your tender, this takes about a minute</span>
+                <span id="progress-value">0%</span>
+              </div>
+              <div class="progress-track">
+                <div id="progress-bar" class="progress-bar"></div>
+              </div>
+            </div>
             <button id="analyze-button" class="button button-primary" type="submit"><span>Analyze this tender</span><span aria-hidden="true">→</span></button>
-            <p class="privacy-note"><span aria-hidden="true">⌑</span> Extracted text is sent to your configured AI provider. Uploaded files are not retained; analysis is saved locally. Scanned pages are OCR-processed on this device.</p>
+            <button id="retry-button" class="button button-secondary retry-button" type="button" hidden>Try again</button>
+            <p class="privacy-note"><span aria-hidden="true">⌑</span> Extracted text is sent to your configured AI provider. Uploaded files are not retained; {% if tester_mode %}analysis is private to this browser session.{% else %}analysis is saved locally.{% endif %} Scanned pages are OCR-processed on this device.</p>
           </form>
         </section>
       </div>
@@ -73,7 +86,7 @@
         <div id="analysis-results"></div>
       </section>
       <section class="history-section" id="history-section" hidden>
-        <div class="history-heading"><h2>Recent analyses</h2><span>Saved on this device</span></div>
+        <div class="history-heading"><h2>Recent analyses</h2><span>{% if tester_mode %}Private to this browser session{% else %}Saved on this device{% endif %}</span></div>
         <div id="history-error" class="inline-status" role="status" hidden></div>
         <div id="history-list" class="history-list"></div>
       </section>

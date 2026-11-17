@@ -37,6 +37,19 @@ Open [http://127.0.0.1:8000](http://127.0.0.1:8000). Save your business profile,
 
 Recent results and the profile are stored in the local SQLite database at `data/tenderready.sqlite3` (override with `TENDERREADY_DB_PATH`). Uploaded files are processed in memory and are not retained. Extracted tender text is sent to the configured AI provider for analysis; do not upload documents you are not permitted to share with that provider. If OCR is unavailable, the app returns a clear installation error rather than silently analyzing incomplete text.
 
+## Host a private tester preview
+
+The repository includes a Render Blueprint in `render.yaml`. It creates a free Docker web service with Tesseract installed for OCR; Neon provides the PostgreSQL database so data survives Render restarts and idle spin-downs.
+
+1. Create a free Neon project and copy its pooled PostgreSQL connection string with SSL enabled.
+2. In Render, choose **New → Blueprint**, connect this repository, and deploy `render.yaml`.
+3. When prompted, enter the Neon connection string as `DATABASE_URL`, a long random `TESTER_ACCESS_CODE`, and an AI provider key such as `ANTHROPIC_API_KEY`. Render generates `SESSION_SECRET`.
+4. Share the Render URL and tester access code only with invited testers.
+
+Set `APP_ENV=production` in the deployment. The app requires both `SESSION_SECRET` and `TESTER_ACCESS_CODE` in production and uses HTTPS-only session cookies. Each tester browser session gets its own profile and analysis history; the access code itself is shared, so this is suitable for a closed pilot, not individual user accounts. Clearing browser cookies creates a new tester workspace. Do not upload confidential tender documents: extracted text is sent to the configured AI provider. AI provider usage can incur charges.
+
+Free Render services sleep when idle and may take about a minute to wake. Neon Free compute also scales to zero; the first database request after idle may be slower. This setup is for a small pilot, not production service-level guarantees.
+
 ## Verify
 
 ```bash

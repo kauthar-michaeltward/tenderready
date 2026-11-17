@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: tenderready
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: TESTER_ACCESS_CODE
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false

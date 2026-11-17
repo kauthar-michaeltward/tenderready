@@ -7,8 +7,13 @@ const fileDetail = document.querySelector("#file-detail");
 const profileStatus = document.querySelector("#profile-status");
 const uploadError = document.querySelector("#upload-error");
 const analyzeButton = document.querySelector("#analyze-button");
+const retryButton = document.querySelector("#retry-button");
+const progressSection = document.querySelector("#analysis-progress");
+const progressBar = document.querySelector("#progress-bar");
+const progressValue = document.querySelector("#progress-value");
 const maxFileBytes = 12 * 1024 * 1024;
 const maxBundleBytes = 40 * 1024 * 1024;
+const processingTimeoutMs = 6 * 60 * 1000;
 const supportedExtensions = new Set([
   ".pdf", ".docx", ".xlsx", ".xls", ".pptx", ".txt", ".csv", ".html", ".htm",
   ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp",
@@ -34,6 +39,89 @@ async function requestJson(url, options = {}) {
     throw new Error(detail || "Something went wrong. Please try again.");
   }
   return body;
+}
+
+let activePollingTimer = null;
+
+function resetProgressBar() {
+  progressBar.style.transition = "none";
+  progressBar.style.width = "0%";
+  progressValue.textContent = "0%";
+}
+
+function setProcessingState(isProcessing) {
+  fileInput.disabled = isProcessing;
+  analyzeButton.disabled = isProcessing;
+  if (isProcessing) {
+    analyzeButton.querySelector("span:first-child").textContent = "Analysing…";
+    progressSection.hidden = false;
+    retryButton.hidden = true;
+    setMessage(uploadError, "");
+    resetProgressBar();
+    requestAnimationFrame(() => {
+      progressBar.style.transition = "width 75s linear";
+      progressBar.style.width = "95%";
+      progressValue.textContent = "95%";
+    });
+  } else {
+    analyzeButton.querySelector("span:first-child").textContent = "Analyze this tender";
+    progressSection.hidden = true;
+    resetProgressBar();
+  }
+}
+
+function clearPollingTimer() {
+  if (activePollingTimer) {
+    clearTimeout(activePollingTimer);
+    activePollingTimer = null;
+  }
+}
+
+async function pollAnalysis(analysisId) {
+  const startedAt = Date.now();
+  const poll = async () => {
+    if (Date.now() - startedAt >= processingTimeoutMs) {
+      clearPollingTimer();
+      setProcessingState(false);
+      setMessage(uploadError, "The analysis timed out after 6 minutes. Please try again.", true);
+      retryButton.hidden = false;
+      return;
+    }
+
+    try {
+      const record = await requestJson(`/api/analyses/${analysisId}`);
+      if (record.status === "complete") {
+        clearPollingTimer();
+        progressBar.style.transition = "width 0.4s linear";
+        progressBar.style.width = "100%";
+        progressValue.textContent = "100%";
+        setTimeout(() => {
+          setProcessingState(false);
+          renderAnalysis(record);
+        }, 350);
+        return;
+      }
+      if (record.status === "failed") {
+        clearPollingTimer();
+        setProcessingState(false);
+        const message = record.error || "The analysis failed. Please try again.";
+        setMessage(uploadError, message, true);
+        retryButton.hidden = false;
+        return;
+      }
+      const elapsed = Date.now() - startedAt;
+      const percent = Math.min(95, Math.round((elapsed / 75000) * 95));
+      progressBar.style.width = `${percent}%`;
+      progressValue.textContent = `${percent}%`;
+      activePollingTimer = setTimeout(poll, 3000);
+    } catch (error) {
+      clearPollingTimer();
+      setProcessingState(false);
+      setMessage(uploadError, error.message, true);
+      retryButton.hidden = false;
+    }
+  };
+  await poll();
 }
 
 function readProfileForm() {
@@ -103,6 +191,11 @@ dropZone.addEventListener("drop", (event) => {
   }
 });
 
+retryButton.addEventListener("click", () => {
+  retryButton.hidden = true;
+  tenderForm.requestSubmit();
+});
+
 tenderForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const files = Array.from(fileInput.files);
@@ -123,18 +216,19 @@ tenderForm.addEventListener("submit", async (event) => {
   }
   const data = new FormData();
   files.forEach((file) => data.append("files", file));
-  analyzeButton.disabled = true;
-  analyzeButton.querySelector("span:first-child").textContent = "Reading and analyzing tender…";
+  setProcessingState(true);
   setMessage(uploadError, "");
+  retryButton.hidden = true;
   try {
     const result = await requestJson("/api/analyses", { method: "POST", body: data });
-    renderAnalysis(result);
+    clearPollingTimer();
+    await pollAnalysis(result.id);
     await refreshHistory();
   } catch (error) {
+    clearPollingTimer();
+    setProcessingState(false);
     setMessage(uploadError, error.message, true);
-  } finally {
-    analyzeButton.disabled = false;
-    analyzeButton.querySelector("span:first-child").textContent = "Analyze this tender";
+    retryButton.hidden = false;
   }
 });
 

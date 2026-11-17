@@ -1,4 +1,5 @@
 from io import BytesIO
+from datetime import datetime, timedelta, timezone
 import json
 import sqlite3
 
@@ -11,7 +12,7 @@ from openpyxl import Workbook
 from pptx import Presentation
 
 from app import main, storage
-from app.analysis import _check_sources, _configured_provider, analyze_tender
+from app.analysis import ANALYSIS_SCHEMA, _check_sources, _configured_provider, analyze_tender
 from app.document_types import DocumentSegment
 from app.documents import extract_bundle, extract_document
 from app.main import app
@@ -104,6 +105,11 @@ def test_profile_validation_normalizes_list_values():
         BusinessProfile.model_validate({**sample_profile(), "currency": "KES1"})
 
 
+def test_postgres_timestamps_keep_the_frontend_compatible_utc_format():
+    timestamp = datetime(2026, 11, 17, 16, 0, tzinfo=timezone(timedelta(hours=3)))
+    assert storage._api_timestamp(timestamp) == "2026-11-17 13:00:00"
+
+
 def test_pdf_extraction_rejects_empty_or_unreadable_content():
     with pytest.raises(HTTPException, match="empty"):
         extract_pdf_pages(b"")
@@ -159,6 +165,13 @@ def test_sources_are_scoped_to_the_exact_document_and_location():
     analysis_data["rationale"]["sources"][0]["location"] = "Paragraph 5"
     with pytest.raises(HTTPException, match="location that does not exist"):
         _check_sources(TenderAnalysis.model_validate(analysis_data), segments)
+
+
+def test_provider_schema_matches_source_and_result_limits():
+    source_schema = ANALYSIS_SCHEMA["$defs"]["source"]
+    assert source_schema["properties"]["quote"]["maxLength"] == 500
+    assert source_schema["properties"]["location"]["maxLength"] == 160
+    assert ANALYSIS_SCHEMA["properties"]["submission_plan"]["maxItems"] == 30
 
 
 def test_document_extraction_reads_office_files_and_text():
@@ -270,13 +283,15 @@ def test_claude_key_uses_anthropic_api_and_validates_citations(monkeypatch):
     assert captured["headers"]["x-api-key"] == "sk-ant-test-key"
     assert captured["headers"]["anthropic-version"] == "2023-06-01"
     assert captured["payload"]["model"] == "claude-sonnet-4-5"
+    assert captured["payload"]["max_tokens"] == 16000
     assert captured["payload"]["tool_choice"] == {"type": "tool", "name": "tender_analysis"}
-    assert captured["timeout"] == 60
+    assert captured["timeout"] == 300
 
 
 def test_profile_and_analysis_are_persisted(tmp_path, monkeypatch):
     monkeypatch.setenv("TENDERREADY_DB_PATH", str(tmp_path / "test.sqlite3"))
     monkeypatch.setenv("OPENAI_API_KEY", "")
+    monkeypatch.delenv("TESTER_ACCESS_CODE", raising=False)
     client = TestClient(app)
     response = client.put("/api/profile", json=sample_profile())
     assert response.status_code == 200
@@ -289,15 +304,19 @@ def test_profile_and_analysis_are_persisted(tmp_path, monkeypatch):
     )
     assert response.status_code == 200
     record = response.json()
-    assert record["analysis"]["eligibility"] == "conditional"
-    assert record["analysis"]["key_deadlines"][0]["sources"][0]["location"] == "Page 1"
-    assert record["document_count"] == 1
-    assert client.get(f"/api/analyses/{record['id']}").json()["file_name"] == "request.pdf"
+    assert record["status"] == "processing"
+    persisted = client.get(f"/api/analyses/{record['id']}").json()
+    assert persisted["status"] == "complete"
+    assert persisted["analysis"]["eligibility"] == "conditional"
+    assert persisted["analysis"]["key_deadlines"][0]["sources"][0]["location"] == "Page 1"
+    assert persisted["document_count"] == 1
+    assert persisted["file_name"] == "request.pdf"
     assert client.get("/api/analyses").json()[0]["id"] == record["id"]
 
 
 def test_multiple_document_upload_is_extracted_and_persisted(tmp_path, monkeypatch):
     monkeypatch.setenv("TENDERREADY_DB_PATH", str(tmp_path / "test.sqlite3"))
+    monkeypatch.delenv("TESTER_ACCESS_CODE", raising=False)
     client = TestClient(app)
     client.put("/api/profile", json=sample_profile())
     received = {}
@@ -317,11 +336,13 @@ def test_multiple_document_upload_is_extracted_and_persisted(tmp_path, monkeypat
     )
     assert response.status_code == 200
     record = response.json()
-    assert record["document_count"] == 2
-    assert record["page_count"] == 0
-    assert record["file_name"] == "invitation.txt, forms.csv"
+    assert record["status"] == "processing"
+    persisted = client.get(f"/api/analyses/{record['id']}").json()
+    assert persisted["document_count"] == 2
+    assert persisted["page_count"] == 0
+    assert persisted["file_name"] == "invitation.txt, forms.csv"
     assert {segment.document for segment in received["segments"]} == {"invitation.txt", "forms.csv"}
-    assert client.get(f"/api/analyses/{record['id']}").json()["document_count"] == 2
+    assert persisted["status"] == "complete"
 
 
 def test_existing_analysis_database_gets_document_count_migration(tmp_path, monkeypatch):
@@ -348,6 +369,58 @@ def test_existing_analysis_database_gets_document_count_migration(tmp_path, monk
     with sqlite3.connect(database_path) as connection:
         columns = {row[1] for row in connection.execute("PRAGMA table_info(analyses)")}
     assert "document_count" in columns
+    assert "status" in columns
+    assert "error" in columns
+
+
+def test_existing_profile_database_migrates_to_session_scoped_profiles(tmp_path, monkeypatch):
+    database_path = tmp_path / "legacy-profile.sqlite3"
+    with sqlite3.connect(database_path) as connection:
+        connection.execute(
+            """
+            CREATE TABLE business_profile (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                profile_json TEXT NOT NULL,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        connection.execute(
+            "INSERT INTO business_profile (id, profile_json) VALUES (1, ?)",
+            (json.dumps(sample_profile()),),
+        )
+    monkeypatch.setenv("TENDERREADY_DB_PATH", str(database_path))
+
+    assert storage.get_profile()["business_name"] == "Acacia Engineering Ltd"
+    storage.save_profile({"business_name": "Separate"}, "tester-two")
+    assert storage.get_profile("tester-two") == {"business_name": "Separate"}
+    assert storage.get_profile()["business_name"] == "Acacia Engineering Ltd"
+
+
+def test_tester_sessions_are_gated_and_profiles_are_isolated(tmp_path, monkeypatch):
+    monkeypatch.setenv("TENDERREADY_DB_PATH", str(tmp_path / "test.sqlite3"))
+    monkeypatch.setenv("TESTER_ACCESS_CODE", "private-test-code")
+    first_tester = TestClient(app)
+    second_tester = TestClient(app)
+
+    assert "Tester access code" in first_tester.get("/").text
+    assert first_tester.get("/api/profile").status_code == 401
+    assert first_tester.get("/api/analyses").status_code == 401
+    assert first_tester.post("/login", data={"access_code": "wrong"}).status_code == 401
+    first_tester.post("/login", data={"access_code": "private-test-code"})
+    second_tester.post("/login", data={"access_code": "private-test-code"})
+
+    assert first_tester.put("/api/profile", json=sample_profile()).status_code == 200
+    assert first_tester.get("/api/profile").json()["business_name"] == "Acacia Engineering Ltd"
+    assert second_tester.get("/api/profile").status_code == 404
+    assert first_tester.get("/api/analyses").json() == []
+
+    analysis_id = storage.save_analysis(
+        "private.pdf", 1, 1, owner_id="tester-one", status="processing"
+    )
+    assert storage.get_analysis(analysis_id, "tester-one")["file_name"] == "private.pdf"
+    assert storage.get_analysis(analysis_id, "tester-two") is None
+    assert storage.list_analyses("tester-two") == []
 
 
 def test_missing_ai_credentials_fail_without_fabricating_analysis(tmp_path, monkeypatch):
@@ -361,6 +434,10 @@ def test_missing_ai_credentials_fail_without_fabricating_analysis(tmp_path, monk
         "/api/analyses",
         files=[("files", ("request.pdf", make_pdf("Tender closes on 30 June 2027."), "application/pdf"))],
     )
-    assert response.status_code == 503
-    assert "ANTHROPIC_API_KEY" in response.json()["detail"]
-    assert "OPENAI_API_KEY" in response.json()["detail"]
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "processing"
+    persisted = client.get(f"/api/analyses/{payload['id']}").json()
+    assert persisted["status"] == "failed"
+    assert "ANTHROPIC_API_KEY" in persisted["error"]
+    assert "OPENAI_API_KEY" in persisted["error"]

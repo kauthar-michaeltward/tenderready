@@ -77,4 +77,6 @@ class AnalysisRecord(BaseModel):
     file_name: str
     page_count: int
     document_count: int = 1
-    analysis: TenderAnalysis
+    status: Literal["processing", "complete", "failed"] = "complete"
+    error: str | None = None
+    analysis: TenderAnalysis | None = None
