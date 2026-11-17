@@ -13,7 +13,9 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-Add your AI provider key to `.env` as `OPENAI_API_KEY`. The app uses the OpenAI chat-completions API by default. `OPENAI_MODEL` and `OPENAI_BASE_URL` can be changed for a compatible provider endpoint. Without a key, profile saving and PDF validation work, but analysis returns a clear configuration error rather than sample results.
+For Claude, add your Anthropic key to `.env` as `ANTHROPIC_API_KEY`; the app calls Anthropic's Messages API directly and defaults to `claude-sonnet-4-5`. `CLAUDE_API_KEY` is also accepted. If a standard `sk-ant-` Claude key was entered under `OPENAI_API_KEY`, it is detected and routed to Anthropic, though `ANTHROPIC_API_KEY` is the recommended variable.
+
+Alternatively, set `OPENAI_API_KEY` to use OpenAI's chat-completions API; `OPENAI_MODEL` and `OPENAI_BASE_URL` can be changed for a compatible endpoint. If both providers' keys are present, Anthropic is preferred. Without a key, profile saving and PDF validation work, but analysis returns a clear configuration error rather than sample results.
 
 Start the app:
 
