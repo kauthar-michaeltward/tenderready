@@ -52,18 +52,18 @@
         <section class="panel tender-panel" aria-labelledby="tender-title">
           <div class="panel-heading">
             <div class="step-badge step-badge-green">02</div>
-            <div><h2 id="tender-title">Review a tender</h2><p>Upload a tender document to get your tailored assessment.</p></div>
+            <div><h2 id="tender-title">Review a tender</h2><p>Upload one or more tender files, including scanned pages and attachments.</p></div>
           </div>
           <form id="tender-form">
             <label id="drop-zone" class="drop-zone" for="tender-file">
               <span class="upload-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 16V4m0 0L7 9m5-5 5 5M5 15v4a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-4"/></svg></span>
-              <strong id="file-label">Drop your tender PDF here</strong>
-              <span id="file-detail">or <span class="text-link">browse files</span> · PDF up to 12 MB</span>
-              <input id="tender-file" type="file" accept=".pdf,application/pdf" required>
+              <strong id="file-label">Drop tender documents here</strong>
+              <span id="file-detail">or <span class="text-link">browse files</span> · PDF, Office, text, CSV, HTML and images</span>
+              <input id="tender-file" type="file" accept=".pdf,.docx,.xlsx,.xls,.pptx,.txt,.csv,.html,.htm,.png,.jpg,.jpeg,.tif,.tiff,.bmp,.webp" multiple required>
             </label>
             <div id="upload-error" class="error-message" role="alert" hidden></div>
             <button id="analyze-button" class="button button-primary" type="submit"><span>Analyze this tender</span><span aria-hidden="true">→</span></button>
-            <p class="privacy-note"><span aria-hidden="true">⌑</span> Tender text is sent to your configured AI provider. The PDF is not retained; analysis is saved locally.</p>
+            <p class="privacy-note"><span aria-hidden="true">⌑</span> Extracted text is sent to your configured AI provider. Uploaded files are not retained; analysis is saved locally. Scanned pages are OCR-processed on this device.</p>
           </form>
         </section>
       </div>

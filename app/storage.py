@@ -30,10 +30,18 @@ def _connect() -> sqlite3.Connection:
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             file_name TEXT NOT NULL,
             page_count INTEGER NOT NULL,
+            document_count INTEGER NOT NULL DEFAULT 1,
             analysis_json TEXT NOT NULL
         )
         """
     )
+    columns = {
+        row["name"] for row in connection.execute("PRAGMA table_info(analyses)").fetchall()
+    }
+    if "document_count" not in columns:
+        connection.execute(
+            "ALTER TABLE analyses ADD COLUMN document_count INTEGER NOT NULL DEFAULT 1"
+        )
     return connection
 
 
@@ -59,11 +67,19 @@ def save_profile(profile: dict[str, Any]) -> None:
         )
 
 
-def save_analysis(file_name: str, page_count: int, analysis: dict[str, Any]) -> int:
+def save_analysis(
+    file_name: str,
+    page_count: int,
+    document_count: int,
+    analysis: dict[str, Any],
+) -> int:
     with _connect() as connection:
         cursor = connection.execute(
-            "INSERT INTO analyses (file_name, page_count, analysis_json) VALUES (?, ?, ?)",
-            (file_name, page_count, json.dumps(analysis)),
+            """
+            INSERT INTO analyses (file_name, page_count, document_count, analysis_json)
+            VALUES (?, ?, ?, ?)
+            """,
+            (file_name, page_count, document_count, json.dumps(analysis)),
         )
         return int(cursor.lastrowid)
 
@@ -72,7 +88,7 @@ def list_analyses(limit: int = 10) -> list[dict[str, Any]]:
     with _connect() as connection:
         rows = connection.execute(
             """
-            SELECT id, created_at, file_name, page_count
+            SELECT id, created_at, file_name, page_count, document_count
             FROM analyses ORDER BY id DESC LIMIT ?
             """,
             (limit,),
@@ -84,7 +100,7 @@ def get_analysis(analysis_id: int) -> dict[str, Any] | None:
     with _connect() as connection:
         row = connection.execute(
             """
-            SELECT id, created_at, file_name, page_count, analysis_json
+            SELECT id, created_at, file_name, page_count, document_count, analysis_json
             FROM analyses WHERE id = ?
             """,
             (analysis_id,),

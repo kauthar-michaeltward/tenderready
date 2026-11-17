@@ -1,4 +1,3 @@
-import re
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -8,8 +7,14 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from app.analysis import analyze_tender
+from app.documents import (
+    MAX_BUNDLE_BYTES,
+    MAX_BUNDLE_FILES,
+    MAX_FILE_BYTES,
+    extract_bundle,
+    safe_filename,
+)
 from app.models import AnalysisRecord, BusinessProfile
-from app.pdf import extract_pdf_pages
 from app import storage
 
 
@@ -44,26 +49,52 @@ def write_profile(profile: BusinessProfile):
 
 
 @app.post("/api/analyses", response_model=AnalysisRecord)
-async def create_analysis(file: UploadFile = File(...)):
-    if not file.filename or not file.filename.lower().endswith(".pdf"):
-        raise HTTPException(status_code=415, detail="Upload a PDF file.")
-    if file.content_type not in {"application/pdf", "application/octet-stream"}:
-        raise HTTPException(status_code=415, detail="The uploaded file must be a PDF.")
+async def create_analysis(files: list[UploadFile] = File(...)):
+    if not files:
+        raise HTTPException(status_code=422, detail="Upload at least one tender document.")
+    if len(files) > MAX_BUNDLE_FILES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Upload no more than {MAX_BUNDLE_FILES} files at a time.",
+        )
     profile_data = storage.get_profile()
     if profile_data is None:
         raise HTTPException(status_code=400, detail="Save your business profile before analyzing a tender.")
     profile = BusinessProfile.model_validate(profile_data)
-    content = await file.read(12 * 1024 * 1024 + 1)
-    pages = extract_pdf_pages(content)
-    analysis = analyze_tender(pages, profile)
-    safe_name = re.sub(r"[^A-Za-z0-9._ -]", "_", Path(file.filename).name)[:160]
-    analysis_id = storage.save_analysis(safe_name, len(pages), analysis.model_dump())
+    uploads = []
+    total_bytes = 0
+    for file in files:
+        if not file.filename:
+            raise HTTPException(status_code=422, detail="Each uploaded document needs a filename.")
+        content = await file.read(MAX_FILE_BYTES + 1)
+        if len(content) > MAX_FILE_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"Each uploaded file must be 12 MB or smaller: {safe_filename(file.filename)}.",
+            )
+        total_bytes += len(content)
+        if total_bytes > MAX_BUNDLE_BYTES:
+            raise HTTPException(status_code=413, detail="The combined upload must be 40 MB or smaller.")
+        uploads.append((file.filename, content))
+
+    segments = extract_bundle(uploads)
+    analysis = analyze_tender(segments, profile)
+    file_names = [safe_filename(filename) for filename, _ in uploads]
+    bundle_name = ", ".join(file_names)
+    page_count = sum(segment.page is not None for segment in segments)
+    analysis_id = storage.save_analysis(
+        bundle_name,
+        page_count,
+        len(file_names),
+        analysis.model_dump(),
+    )
     record = storage.get_analysis(analysis_id)
     return {
         "id": record["id"],
         "created_at": record["created_at"],
         "file_name": record["file_name"],
         "page_count": record["page_count"],
+        "document_count": record["document_count"],
         "analysis": record["analysis"],
     }
 

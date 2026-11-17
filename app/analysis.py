@@ -7,16 +7,18 @@ from typing import Any
 
 from fastapi import HTTPException
 
+from app.document_types import DocumentSegment
 from app.models import BusinessProfile, TenderAnalysis
 
 
 SYSTEM_PROMPT = """You assess government tender fit for African small and medium businesses.
-Use only the supplied tender pages as evidence about tender requirements, documents, dates,
-and criteria. Compare those explicit requirements with the supplied business profile.
+Use only the supplied tender document segments as evidence about tender requirements, documents,
+dates, and criteria. Compare those explicit requirements with the supplied business profile.
 Do not invent tender facts, eligibility criteria, documents, or deadlines. If the tender does
 not say something, say that it is not stated without presenting it as a tender requirement.
-Every cited quote must be copied verbatim from the supplied page text, be no longer than 500
-characters, and identify its 1-based page number. Cite relevant tender passages for eligibility,
+Every cited quote must be copied verbatim from the supplied segment text, be no longer than 500
+characters, and identify its document name and exact location label. For PDF/image pages, the
+location label includes the 1-based page number. Cite relevant tender passages for eligibility,
 each mandatory document, each deadline, each missing requirement, and any plan step that relies
 on tender details. Profile gaps are not proof that the business fails a requirement; distinguish
 unknown information from a confirmed mismatch. Use the exact JSON shape requested by the caller.
@@ -43,8 +45,14 @@ ANALYSIS_SCHEMA = {
     },
     "$defs": {
         "source": {
-            "type": "object", "additionalProperties": False, "required": ["page", "quote"],
-            "properties": {"page": {"type": "integer"}, "quote": {"type": "string"}},
+            "type": "object", "additionalProperties": False,
+            "required": ["document", "location", "page", "quote"],
+            "properties": {
+                "document": {"type": "string"},
+                "location": {"type": "string"},
+                "page": {"type": ["integer", "null"]},
+                "quote": {"type": "string"},
+            },
         },
         "rationale": {
             "type": "object", "additionalProperties": False, "required": ["text", "sources"],
@@ -108,17 +116,40 @@ def _normalize_quote(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
-def _check_sources(analysis: TenderAnalysis, pages: list[str]) -> None:
+def _as_segments(values: list[DocumentSegment | str]) -> list[DocumentSegment]:
+    return [
+        DocumentSegment("Tender.pdf", f"Page {index}", value, page=index)
+        if isinstance(value, str)
+        else value
+        for index, value in enumerate(values, 1)
+    ]
+
+
+def _check_sources(analysis: TenderAnalysis, values: list[DocumentSegment | str]) -> None:
+    segments = _as_segments(values)
     for source in _iter_sources(analysis.model_dump()):
-        if source["page"] > len(pages):
+        location = source.get("location") or (
+            f"Page {source['page']}" if source.get("page") else ""
+        )
+        matches = [
+            segment
+            for segment in segments
+            if segment.document == source.get("document", "Tender.pdf")
+            and segment.location == location
+            and (source.get("page") is None or segment.page == source["page"])
+        ]
+        if not matches:
             raise HTTPException(
                 status_code=502,
-                detail="The AI returned a source page that does not exist in the uploaded PDF. Please retry.",
+                detail="The AI returned a document location that does not exist in the upload. Please retry.",
             )
-        if _normalize_quote(source["quote"]) not in _normalize_quote(pages[source["page"] - 1]):
+        if not any(
+            _normalize_quote(source["quote"]) in _normalize_quote(segment.text)
+            for segment in matches
+        ):
             raise HTTPException(
                 status_code=502,
-                detail="The AI returned a passage that could not be verified in the uploaded PDF. Please retry.",
+                detail="The AI returned a passage that could not be verified in the uploaded documents. Please retry.",
             )
 
 
@@ -134,17 +165,26 @@ def _iter_sources(value: Any):
             yield from _iter_sources(child)
 
 
-def _analysis_input(pages: list[str], profile: BusinessProfile) -> str:
+def _analysis_input(segments: list[DocumentSegment], profile: BusinessProfile) -> str:
     return json.dumps(
         {
             "business_profile": profile.model_dump(),
-            "tender_pages": [{"page": index, "text": text} for index, text in enumerate(pages, 1)],
+            "tender_segments": [
+                {
+                    "document": segment.document,
+                    "location": segment.location,
+                    "page": segment.page,
+                    "text": segment.text,
+                }
+                for segment in segments
+            ],
             "response_instructions": (
                 "Return eligibility, rationale {text,sources}, mandatory_documents "
                 "[{name,reason,sources}], key_deadlines [{name,date,sources}], "
                 "missing_requirements [{requirement,profile_gap,sources}], and "
-                "submission_plan [{step,due_date,sources}]. Give a useful ordered plan. "
-                "Use only exact page text in source quotes."
+                "submission_plan [{step,due_date,sources}]. Each source must contain the exact "
+                "document and location labels supplied in a segment, plus an exact quote. Include "
+                "page for page-based locations. Give a useful ordered plan."
             ),
         },
         ensure_ascii=False,
@@ -210,14 +250,18 @@ def _send_request(request: urllib.request.Request, provider: str) -> TenderAnaly
     return result
 
 
-def _analyze_with_anthropic(api_key: str, pages: list[str], profile: BusinessProfile) -> TenderAnalysis:
+def _analyze_with_anthropic(
+    api_key: str,
+    segments: list[DocumentSegment],
+    profile: BusinessProfile,
+) -> TenderAnalysis:
     model = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-5")
     payload = {
         "model": model,
         "max_tokens": 4096,
         "temperature": 0.1,
         "system": SYSTEM_PROMPT,
-        "messages": [{"role": "user", "content": _analysis_input(pages, profile)}],
+        "messages": [{"role": "user", "content": _analysis_input(segments, profile)}],
         "tools": [
             {
                 "name": "tender_analysis",
@@ -240,7 +284,11 @@ def _analyze_with_anthropic(api_key: str, pages: list[str], profile: BusinessPro
     return _send_request(request, "anthropic")
 
 
-def _analyze_with_openai(api_key: str, pages: list[str], profile: BusinessProfile) -> TenderAnalysis:
+def _analyze_with_openai(
+    api_key: str,
+    segments: list[DocumentSegment],
+    profile: BusinessProfile,
+) -> TenderAnalysis:
     endpoint = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
     model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
     payload = {
@@ -252,7 +300,7 @@ def _analyze_with_openai(api_key: str, pages: list[str], profile: BusinessProfil
         },
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": _analysis_input(pages, profile)},
+            {"role": "user", "content": _analysis_input(segments, profile)},
         ],
     }
     request = urllib.request.Request(
@@ -264,11 +312,15 @@ def _analyze_with_openai(api_key: str, pages: list[str], profile: BusinessProfil
     return _send_request(request, "openai")
 
 
-def analyze_tender(pages: list[str], profile: BusinessProfile) -> TenderAnalysis:
+def analyze_tender(
+    values: list[DocumentSegment | str],
+    profile: BusinessProfile,
+) -> TenderAnalysis:
+    segments = _as_segments(values)
     provider, api_key = _configured_provider()
     if provider == "anthropic":
-        result = _analyze_with_anthropic(api_key, pages, profile)
+        result = _analyze_with_anthropic(api_key, segments, profile)
     else:
-        result = _analyze_with_openai(api_key, pages, profile)
-    _check_sources(result, pages)
+        result = _analyze_with_openai(api_key, segments, profile)
+    _check_sources(result, segments)
     return result

@@ -27,7 +27,9 @@ class BusinessProfile(BaseModel):
 
 
 class SourceRef(BaseModel):
-    page: int = Field(ge=1)
+    document: str = Field(default="Tender.pdf", min_length=1, max_length=160)
+    location: str = Field(default="", max_length=160)
+    page: int | None = Field(default=None, ge=1)
     quote: str = Field(min_length=8, max_length=500)
 
 
@@ -74,4 +76,5 @@ class AnalysisRecord(BaseModel):
     created_at: str
     file_name: str
     page_count: int
+    document_count: int = 1
     analysis: TenderAnalysis
