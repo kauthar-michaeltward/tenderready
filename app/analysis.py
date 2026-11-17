@@ -1,7 +1,7 @@
 import json
+import logging
 import os
 import re
-import sys
 import urllib.error
 import urllib.request
 from typing import Any
@@ -10,6 +10,8 @@ from fastapi import HTTPException
 
 from app.document_types import DocumentSegment
 from app.models import BusinessProfile, TenderAnalysis
+
+logger = logging.getLogger("tenderready")
 
 
 SYSTEM_PROMPT = """You assess government tender fit for African small and medium businesses.
@@ -257,7 +259,7 @@ def _send_request(request: urllib.request.Request, provider: str) -> TenderAnaly
         with urllib.request.urlopen(request, timeout=AI_REQUEST_TIMEOUT_SECONDS) as response:
             response_data = json.loads(response.read())
         if provider == "anthropic" and response_data.get("stop_reason") == "max_tokens":
-            print("[tenderready] Claude response cut off at max_tokens", file=sys.stderr, flush=True)
+            logger.warning("Claude response cut off at max_tokens")
             raise HTTPException(
                 status_code=502,
                 detail="The analysis was cut off before it finished. Try fewer or shorter documents.",
@@ -289,7 +291,7 @@ def _send_request(request: urllib.request.Request, provider: str) -> TenderAnaly
             detail="Could not connect to the AI provider. Check your connection and try again.",
         ) from exc
     except (KeyError, IndexError, TypeError, json.JSONDecodeError, ValueError) as exc:
-        print(f"[tenderready] invalid AI response: {type(exc).__name__}: {str(exc)[:1500]}", file=sys.stderr, flush=True)
+        logger.warning(f"invalid AI response: {type(exc).__name__}: {str(exc)[:1500]}")
         raise HTTPException(
             status_code=502,
             detail="The AI provider returned an invalid response. Please try again.",
@@ -397,7 +399,7 @@ def _prune_unverified(result: TenderAnalysis, segments: list[DocumentSegment]) -
     if not data["submission_plan"]:
         return result
     if removed:
-        print(f"[tenderready] removed {removed} unverifiable citation(s)", file=sys.stderr, flush=True)
+        logger.warning(f"removed {removed} unverifiable citation(s)")
     return TenderAnalysis.model_validate(data)
 
 
@@ -419,7 +421,7 @@ def analyze_tender(
             return result
         except HTTPException as exc:
             last_error = exc
-            print(f"[tenderready] AI attempt {attempt} failed: {exc.detail}", file=sys.stderr, flush=True)
+            logger.warning(f"AI attempt {attempt} failed: {exc.detail}")
             if "timed out" in str(exc.detail).lower() or "could not connect" in str(exc.detail).lower():
                 break
     if not FALLBACK_ENABLED:
@@ -427,10 +429,10 @@ def analyze_tender(
     try:
         from app.basic_check import basic_check
 
-        print("[tenderready] using basic check fallback", file=sys.stderr, flush=True)
+        logger.warning("using basic check fallback")
         fallback = basic_check(segments, profile)
         _check_sources(fallback, segments)
         return fallback
     except Exception as fallback_error:
-        print(f"[tenderready] basic check failed: {fallback_error}", file=sys.stderr, flush=True)
+        logger.warning(f"basic check failed: {fallback_error}")
         raise last_error
