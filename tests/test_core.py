@@ -1,6 +1,6 @@
 import json
 
-import fitz
+import pymupdf as fitz
 import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
@@ -77,6 +77,20 @@ def test_pdf_extraction_rejects_empty_or_image_only_content():
     content = image_only.tobytes()
     image_only.close()
     with pytest.raises(HTTPException, match="No selectable text"):
+        extract_pdf_pages(content)
+
+
+def test_image_dominated_page_with_only_a_signature_line_requires_ocr():
+    document = fitz.open()
+    page = document.new_page(width=200, height=300)
+    pixmap = fitz.Pixmap(fitz.csRGB, (0, 0, 10, 10), 0)
+    pixmap.clear_with(255)
+    page.insert_image(page.rect, pixmap=pixmap)
+    page.insert_text((20, 20), "Managing Director")
+    content = document.tobytes()
+    document.close()
+
+    with pytest.raises(HTTPException, match="OCR is required"):
         extract_pdf_pages(content)
 
 
