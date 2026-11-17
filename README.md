@@ -12,7 +12,7 @@ Public procurement is one of the biggest markets an African small business can s
 - **Small mistakes disqualify good businesses.** A missing SBD form, an expired tax compliance PIN, no CSD registration, the wrong B-BBEE or CIDB level, or a missed compulsory briefing ends the bid, however good the business is.
 - **Owners cannot afford to guess.** Tender consultants are expensive, and small teams lose days reading tenders they were never eligible for.
 
-TenderReady reads the tender for you. You describe your business once, upload the tender documents, and get a plain-language brief:
+TenderReady uses AI to read the tender for you. You describe your business once, upload the tender documents, and get a plain-language brief:
 
 - **Eligibility assessment**: eligible, conditional, ineligible or unclear, with the reasons.
 - **Mandatory documents**: every form and certificate the tender asks for.
@@ -20,13 +20,24 @@ TenderReady reads the tender for you. You describe your business once, upload th
 - **Missing requirements**: where your profile does not yet meet what the tender asks for.
 - **Submission plan**: ordered next steps with due dates.
 
-Every point is backed by a quote from the tender, labelled with the document and the page, table row or paragraph it came from. Click a source chip to see the exact passage. TenderReady checks each quote against the uploaded text, so it does not show claims it cannot trace back to the tender. It is built around South African tender requirements (SBD forms, SARS, CSD, B-BBEE, CIDB, COIDA) and works for any country's tenders through the business profile.
+It is built around South African tender requirements (SBD forms, SARS, CSD, B-BBEE, CIDB, COIDA) and works for tenders from other African countries through the business profile.
+
+## How it works
+
+TenderReady uses **Claude**, an AI model made by Anthropic, in the background. Here is what happens when you click **Analyze this tender**:
+
+1. **Your documents are read on our server.** TenderReady pulls the text out of each file. Scanned pages and photos are read with OCR (software that turns a picture of text into text).
+2. **Claude analyses the text.** TenderReady sends Claude the tender text and your business profile, and asks for the brief.
+3. **TenderReady checks Claude's work.** Every point Claude makes must quote the tender. TenderReady looks up each quote in the documents and removes any it cannot find, so you only see claims you can trace back to the tender. Click a source chip on any point to read the exact passage.
+4. **If the AI fails, you still get something.** TenderReady retries once. If that also fails, it shows a clearly labelled **Basic check** made without AI: it searches the documents for standard requirements and dates and quotes each one.
+
+What leaves your device: the extracted text and your business profile go to Claude for analysis. The original files are not stored anywhere. Do not upload documents marked confidential or restricted.
 
 ## How we kept tokens low
 
-1. All reading happens on our side, not the AI's: PDFs, Word, Excel and scanned pages (OCR with Tesseract) are converted to text locally, so the AI only receives plain text, never images or raw files.
-2. One AI call per tender: a single forced tool call returns the whole brief as structured JSON, with no chat back-and-forth or multi-step agent, and the fallback "Basic check" uses no AI tokens at all.
-3. Short answers by design: the prompt asks for quotes under 200 characters, at most 3 sources per item and two-sentence reasons, and the output schema caps every list and field length.
+1. **We read the files, not the AI.** PDFs, Word, Excel and scanned pages are turned into text on our server first, so Claude only receives plain text, never images or whole files.
+2. **One request per tender.** Claude returns the whole brief in a single, fixed-format answer, with no back-and-forth conversation, and the Basic check fallback uses no AI at all.
+3. **Short answers by design.** Claude is told to keep quotes under 200 characters, use at most 3 sources per point and explain in two sentences, and every list in the answer has a maximum length.
 
 ## How to run
 
@@ -50,9 +61,9 @@ uvicorn app.main:app --reload     # open http://127.0.0.1:8000
 | Business profile, saved per browser session | Working |
 | Upload one or more tender files (PDF, Word, Excel, PowerPoint, text, CSV, HTML, images) | Working |
 | Scanned PDFs and photos of pages, read with OCR | Working |
-| AI tender analysis with cited, verified sources | Working |
+| AI tender analysis by Claude, with every source quote checked | Working |
 | Progress bar while the analysis runs (about 1 to 3 minutes) | Working |
-| Automatic retry, then a labelled "Basic check" if the AI cannot return a valid result | Working |
+| Automatic retry, then a labelled Basic check (no AI) if Claude cannot return a valid result | Working |
 | History of your recent analyses | Working |
 
 ## How to try it (5 minutes)
