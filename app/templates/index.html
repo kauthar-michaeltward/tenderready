@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#f6f7f3">
+    <title>TenderReady — Find your fit. Submit with confidence.</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/app.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="TenderReady home"><span class="brand-mark">T</span><span>Tender<span class="brand-light">Ready</span></span></a>
+      <div class="topbar-note"><span class="status-dot"></span> Built for African businesses</div>
+    </header>
+    <main>
+      <section class="hero">
+        <div class="hero-copy">
+          <div class="eyebrow"><span class="eyebrow-line"></span> YOUR NEXT OPPORTUNITY, MADE CLEAR</div>
+          <h1>Find your fit.<br><span>Submit with confidence.</span></h1>
+          <p>Understand the tender before you commit. Get a clear eligibility read, a document checklist and a practical plan — grounded in the tender itself.</p>
+        </div>
+        <div class="hero-aside"><span class="aside-icon">✳</span><span>Less guesswork.<br>More opportunity.</span></div>
+      </section>
+
+      <div class="workspace">
+        <section class="panel profile-panel" aria-labelledby="profile-title">
+          <div class="panel-heading">
+            <div class="step-badge">01</div>
+            <div><h2 id="profile-title">Your business profile</h2><p>We use this to assess your fit. Your profile is saved in this local app.</p></div>
+          </div>
+          <form id="profile-form" class="form-grid">
+            <label class="field field-wide">Business name<input name="business_name" required minlength="2" maxlength="120" placeholder="e.g. Acacia Engineering Ltd" value="{{ profile.business_name if profile else '' }}"></label>
+            <label class="field">Country<input name="country" required minlength="2" maxlength="80" placeholder="e.g. Kenya" value="{{ profile.country if profile else '' }}"></label>
+            <label class="field">Industry / sector<input name="sector" required minlength="2" maxlength="100" placeholder="e.g. Construction" value="{{ profile.sector if profile else '' }}"></label>
+            <label class="field">Years in business<input name="years_operating" type="number" min="0" max="200" required placeholder="5" value="{{ profile.years_operating if profile else '' }}"></label>
+            <label class="field">Annual revenue<input name="annual_revenue" type="number" min="0" step="0.01" required placeholder="25000000" value="{{ profile.annual_revenue if profile else '' }}"></label>
+            <label class="field">Revenue currency<input name="currency" required minlength="3" maxlength="3" pattern="[A-Za-z]{3}" placeholder="KES" value="{{ profile.currency if profile else '' }}"></label>
+            <label class="field">Registration number <span class="optional">Optional</span><input name="registration_number" maxlength="120" placeholder="Business registration ID" value="{{ profile.registration_number if profile else '' }}"></label>
+            <label class="field field-wide">Certifications <span class="optional">Optional · separate with commas</span><input name="certifications" placeholder="ISO 9001, NCA Category 4" value="{{ profile.certifications | join(', ') if profile else '' }}"></label>
+            <label class="field field-wide">What does your business do? <span class="required-note">Separate with commas</span><textarea name="capabilities" rows="2" required placeholder="Road construction, project management, civil works">{{ profile.capabilities | join(', ') if profile else '' }}</textarea></label>
+            <label class="field field-wide">Regions where you operate <span class="required-note">Separate with commas</span><input name="geographic_regions" required placeholder="Nairobi, Rift Valley" value="{{ profile.geographic_regions | join(', ') if profile else '' }}"></label>
+            <div class="field-wide form-footer">
+              <button class="button button-secondary" type="submit"><span class="button-icon">✓</span> Save business profile</button>
+              <span id="profile-status" class="inline-status" role="status"></span>
+            </div>
+          </form>
+        </section>
+
+        <section class="panel tender-panel" aria-labelledby="tender-title">
+          <div class="panel-heading">
+            <div class="step-badge step-badge-green">02</div>
+            <div><h2 id="tender-title">Review a tender</h2><p>Upload a tender document to get your tailored assessment.</p></div>
+          </div>
+          <form id="tender-form">
+            <label id="drop-zone" class="drop-zone" for="tender-file">
+              <span class="upload-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 16V4m0 0L7 9m5-5 5 5M5 15v4a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-4"/></svg></span>
+              <strong id="file-label">Drop your tender PDF here</strong>
+              <span id="file-detail">or <span class="text-link">browse files</span> · PDF up to 12 MB</span>
+              <input id="tender-file" type="file" accept=".pdf,application/pdf" required>
+            </label>
+            <div id="upload-error" class="error-message" role="alert" hidden></div>
+            <button id="analyze-button" class="button button-primary" type="submit"><span>Analyze this tender</span><span aria-hidden="true">→</span></button>
+            <p class="privacy-note"><span aria-hidden="true">⌑</span> Tender text is sent to your configured AI provider. The PDF is not retained; analysis is saved locally.</p>
+          </form>
+        </section>
+      </div>
+
+      <section id="results-section" class="results-section" aria-live="polite" hidden>
+        <div class="results-heading"><div><div class="eyebrow"><span class="eyebrow-line"></span> YOUR TENDER BRIEF</div><h2 id="result-title">Analysis</h2></div><div id="analysis-meta" class="analysis-meta"></div></div>
+        <div id="analysis-results"></div>
+      </section>
+      <section class="history-section" id="history-section" hidden>
+        <div class="history-heading"><h2>Recent analyses</h2><span>Saved on this device</span></div>
+        <div id="history-error" class="inline-status" role="status" hidden></div>
+        <div id="history-list" class="history-list"></div>
+      </section>
+      <footer class="footer"><span>TenderReady</span><span>Clearer tenders. Stronger submissions.</span></footer>
+    </main>
+    <script src="/static/app.js" defer></script>
+  </body>
+</html>
