@@ -28,8 +28,6 @@ IS_PRODUCTION = os.getenv("APP_ENV", "").lower() == "production"
 SESSION_SECRET = os.getenv("SESSION_SECRET", "")
 if IS_PRODUCTION and not SESSION_SECRET:
     raise RuntimeError("SESSION_SECRET must be set when APP_ENV=production.")
-if IS_PRODUCTION and not os.getenv("TESTER_ACCESS_CODE"):
-    raise RuntimeError("TESTER_ACCESS_CODE must be set when APP_ENV=production.")
 
 app = FastAPI(title="TenderReady", description="Grounded tender analysis for African SMEs.")
 app.add_middleware(
@@ -44,7 +42,12 @@ templates = Jinja2Templates(directory=BASE_DIR / "templates")
 
 def _owner_id(request: Request) -> str:
     if not os.getenv("TESTER_ACCESS_CODE"):
-        return "local"
+        if not IS_PRODUCTION:
+            return "local"
+        # Public site: every visitor gets a private session automatically.
+        if not request.session.get("tester_id"):
+            request.session["tester_id"] = secrets.token_urlsafe(32)
+        return request.session["tester_id"]
     owner_id = request.session.get("tester_id")
     if not owner_id:
         raise HTTPException(status_code=401, detail="Enter the tester access code to continue.")
@@ -64,7 +67,8 @@ def home(request: Request):
         name="index.html",
         context={
             "profile": storage.get_profile(_owner_id(request)),
-            "tester_mode": bool(os.getenv("TESTER_ACCESS_CODE")),
+            "tester_mode": bool(os.getenv("TESTER_ACCESS_CODE")) or IS_PRODUCTION,
+            "access_required": bool(os.getenv("TESTER_ACCESS_CODE")),
         },
     )
 

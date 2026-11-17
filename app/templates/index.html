@@ -15,7 +15,7 @@
       <a class="brand" href="/" aria-label="TenderReady home"><span class="brand-mark">T</span><span>Tender<span class="brand-light">Ready</span></span></a>
       <div class="topbar-actions">
         <div class="topbar-note"><span class="status-dot"></span> Built for African businesses</div>
-        {% if tester_mode %}<form action="/logout" method="post"><button class="logout-button" type="submit">Sign out</button></form>{% endif %}
+        {% if access_required %}<form action="/logout" method="post"><button class="logout-button" type="submit">Sign out</button></form>{% endif %}
       </div>
     </header>
     <main>

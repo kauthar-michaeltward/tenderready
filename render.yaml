@@ -11,8 +11,6 @@ services:
         value: production
       - key: SESSION_SECRET
         generateValue: true
-      - key: TESTER_ACCESS_CODE
-        sync: false
       - key: DATABASE_URL
         sync: false
       - key: ANTHROPIC_API_KEY
